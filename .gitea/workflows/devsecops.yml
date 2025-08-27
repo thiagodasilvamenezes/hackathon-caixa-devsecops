@@ -1,0 +1,19 @@
+name: DevSecOps Local
+on:
+  push:
+    branches: [ "**" ]
+    tags: [ "v*" ]
+jobs:
+  dev:
+    runs-on: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pipeline DEV
+        run: make pipeline-dev
+  prd:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pipeline PRD
+        run: make pipeline-prd

@@ -1,0 +1,26 @@
+version: '3.9'
+services:
+  gitea:
+    image: gitea/gitea:1.22
+    container_name: gitea
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+    restart: always
+    ports:
+      - "3000:3000"
+      - "222:22"
+    volumes:
+      - ./gitea-data:/data
+
+  runner:
+    image: gitea/act_runner:latest
+    container_name: gitea-runner
+    depends_on: [gitea]
+    environment:
+      - GITEA_INSTANCE_URL=http://gitea:3000
+      - GITEA_RUNNER_REGISTRATION_TOKEN=${GITEA_RUNNER_TOKEN:-changeme}
+      - GITEA_RUNNER_LABELS=local
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: always

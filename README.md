@@ -1,32 +1,58 @@
-# 🏆 Desafio CAIXA 2025 — DevSecOps (Quarkus + Kubernetes no WSL)
+# Hackathon CAIXA 2025 – DevSecOps (Toolbox + kind)
 
-Este projeto foi adaptado para rodar no **WSL2** (Ubuntu).
+Pipeline local para build e deploy de um app **Quarkus** (Temurin 17) em **Kubernetes (kind)** com **dois ambientes**: **DES** e **PRD**.
+Inclui camadas de DevSecOps: **Trivy** (scan), **Syft** (SBOM) e **Cosign** (assinatura).
 
-cd ..
+## Requisitos no host (WSL)
+- Docker funcional (sem necessidade de Docker Desktop).
+- (Opcional) `make` no host para rodar `make toolbox-shell`.
 
-## 🚀 Passos Rápidos
+## Passo a passo
 ```bash
-# Criar cluster local no WSL2
-kind create cluster --name caixa-dev --image kindest/node:v1.29.0
+# 1) Buildar a toolbox com todas as ferramentas
+make toolbox-build
 
-# Configurar registry local acessível no WSL2
-docker run -d -p 5001:5000 --restart=always --name registry registry:2
+# 2) Entrar na toolbox (container de ferramentas)
+make toolbox-shell
 
-# Build da aplicação e imagem
-make build-app
-make image-build
+# 3) Executar a pipeline local completa para DES
+make demo
 
-# Deploy em DES
-make deploy-des
+# 4) Testar
+kubectl -n des port-forward svc/quarkus-app 8080:8080
+curl -s http://localhost:8080/hello
 
-# Deploy em PRD
-make deploy-prd
-
-# Testar
-kubectl port-forward svc/quarkus-app -n des 8080:8080
-curl http://localhost:8080/hello
+# 5) Promover para PRD (tag estável) com Trivy estrito
+make promote-to-prd STRICT=true
+kubectl -n prd get deploy,svc,pods
 ```
 
-## 🛡️ Notas WSL
-- Verifique se o **Docker Desktop** tem "Use the WSL 2 based engine" habilitado.
-- O registry `localhost:5001` funciona dentro do WSL e no Docker Desktop.
+### Variáveis (podem ser sobrescritas)
+- `REGISTRY` (padrão: `localhost:5001`)
+- `APP_NAME` (padrão: `quarkus-getting-started`)
+- `PRD_TAG` (padrão: `v0.1.0`)
+- `STRICT` (`true|false` — controla Trivy)
+
+Exemplo:
+```bash
+REGISTRY=localhost:5001 APP_NAME=meuapp make demo
+```
+
+### Cosign (evitar prompt)
+- **Sem senha (demo):** não exporte nada; a chave será gerada sem senha.
+- **Com senha:** defina `COSIGN_PASSWORD` antes do `make sign`/`make demo`.
+
+```bash
+export COSIGN_PASSWORD='minha-senha'
+make demo
+```
+
+## Estrutura
+```
+app/                      # código Quarkus (Hello + health)
+docker/Dockerfile         # multistage (Maven -> Temurin 17 JRE)
+k8s/base, overlays/des,prd# manifests via kustomize (dois ambientes)
+scripts/                  # setup kind/registry, scan, sbom, sign, push
+toolbox/                  # imagem com kubectl/kind/kustomize/trivy/syft/cosign
+Makefile                  # pipeline local (alvos: demo, promote-to-prd, etc.)
+```

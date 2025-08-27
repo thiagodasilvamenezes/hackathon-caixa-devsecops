@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+if git log -1 --pretty=%B | grep -qi '\[skip ci\]'; then exit 0; fi
+nohup bash toolbox/run-ci.sh 'make demo' > /tmp/pipeline-dev.log 2>&1 &
