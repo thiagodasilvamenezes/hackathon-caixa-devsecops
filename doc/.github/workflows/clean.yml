@@ -1,0 +1,12 @@
+name: Clean (env-down)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  clean:
+    runs-on: [self-hosted, toolbox, kind]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Derrubar cluster+registry
+        run: bash toolbox/run-ci.sh 'make env-down || true'

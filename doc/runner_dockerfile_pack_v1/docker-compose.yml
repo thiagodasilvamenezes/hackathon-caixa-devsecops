@@ -1,0 +1,23 @@
+services:
+  gh-runner-devsecops:
+    # Use a imagem filha que você buildou a partir do Dockerfile (ou use diretamente a imagem base + envs).
+    image: my/gh-runner:caixa
+    container_name: gh-runner-devsecops
+    restart: always
+    environment:
+      # Token só no primeiro registro. Depois de registrado, com o volume /runner, pode remover.
+      RUNNER_TOKEN: "${RUNNER_TOKEN}"
+      # Você pode sobrescrever nome/labels por env se quiser:
+      RUNNER_NAME: "${RUNNER_NAME:-devsecops-runner}"
+      RUNNER_LABELS: "${RUNNER_LABELS:-self-hosted,toolbox,kind}"
+      # Alternativamente ao REPO_URL embutido na imagem, você pode sobrescrever aqui:
+      # REPO_URL: "https://github.com/OWNER/REPO"
+      # ORG_URL: "https://github.com/ORG"
+      # ENTERPRISE_URL: "https://github.com/enterprises/ENTERPRISE"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/actions-runner:/runner
+      - ${HOME}/.kube:/root/.kube
+      - ${HOME}/.docker:/root/.docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -65,6 +65,16 @@ if [ -f /.dockerenv ]; then
     SERVER_LINE=$(grep -m1 'server:' "$KCONF" | awk '{print $2}' || true)
   fi
   log "ℹ️  kubeconfig server atual: ${SERVER_LINE}"
+  # Se server aponta para IP interno (ex: 172.x) e estiver inacessível, tenta regenerar para voltar a 127.0.0.1
+  if echo "$SERVER_LINE" | grep -Eq 'https://172\.'; then
+    if ! kubectl --request-timeout=3s get --raw=/version >/dev/null 2>&1; then
+      log "⚠️  API em ${SERVER_LINE} inacessível; regenerando kubeconfig para fallback 127.0.0.1 (porta host publicada pelo kind)."
+      kind get kubeconfig --name "${KIND_CLUSTER}" >"$KCONF" || true
+      NEW_SERVER=$(grep -m1 'server:' "$KCONF" | awk '{print $2}' || true)
+      log "ℹ️  Novo server após regeneração: ${NEW_SERVER}"
+      SERVER_LINE="$NEW_SERVER"
+    fi
+  fi
   #########################################################
   # Auto-fix SAN mismatch: certificado gerado (cluster antigo)
   # inclui 0.0.0.0 mas não 127.0.0.1, causando erro:
@@ -122,7 +132,39 @@ while [ $i -lt $ATTEMPTS ]; do
   fi
   sleep $SLEEP; i=$((i+1))
 done
-[ "$READY" = "true" ] || { echo "❌ API server não ficou pronto após $((ATTEMPTS*SLEEP))s."; kubectl cluster-info 2>&1 || true; exit 1; }
+[ "$READY" = "true" ] || {
+  echo "❌ API server não ficou pronto após $((ATTEMPTS*SLEEP))s.";
+  kubectl cluster-info 2>&1 || true;
+  if [ "${AUTO_RECREATE:-1}" = "1" ]; then
+    log "🔄 Tentando recriar cluster automaticamente (AUTO_RECREATE=1)."
+    kind delete cluster --name "${KIND_CLUSTER}" || true
+    # Recriação simples reutilizando config atual (sem mirror duplicado)
+    cat <<EOF | kind create cluster --name "${KIND_CLUSTER}" --config=-
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${REG_PORT}"]
+    endpoint = ["http://kind-registry:5000"]
+nodes:
+- role: control-plane
+- role: worker
+- role: worker
+EOF
+    kind get kubeconfig --name "${KIND_CLUSTER}" > "$KCONF" || true
+    # segunda janela de espera curta
+    log "⏳ Segunda espera (recriado)..."
+    i=0; READY=false; ATTEMPTS2=60
+    while [ $i -lt $ATTEMPTS2 ]; do
+      if kubectl get --raw=/readyz >/dev/null 2>&1; then READY=true; break; fi
+      sleep 2; i=$((i+1))
+    done
+    [ "$READY" = "true" ] || { log "❌ Falhou mesmo após recriação."; exit 1; }
+    log "✅ API server disponível após recriação (${i*2}s)."
+  else
+    exit 1
+  fi
+}
 log "✅ API server pronto em $((i*SLEEP))s."
 
 if kubectl get nodes >/dev/null 2>&1; then

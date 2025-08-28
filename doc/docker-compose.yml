@@ -1,0 +1,17 @@
+services:
+  gh-runner-devsecops:
+    image: ghcr.io/thiagodasilvamenezes/caixa-devsecops-hackathon/runner:latest
+    container_name: gh-runner-devsecops
+    restart: always
+    environment:
+      REPO_URL: "https://github.com/thiagodasilvamenezes/hackathon-caixa-devsecops.git"
+      RUNNER_NAME: "${HOSTNAME:-devhost}-devsecops"
+      RUNNER_LABELS: "self-hosted,toolbox,kind"
+      RUNNER_TOKEN: "<TOKEN_DO_RUNNER>"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/actions-runner:/runner
+      - ${HOME}/.kube:/root/.kube
+      - ${HOME}/.docker:/root/.docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

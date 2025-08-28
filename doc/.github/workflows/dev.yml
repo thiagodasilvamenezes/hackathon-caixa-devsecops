@@ -1,0 +1,56 @@
+name: DEV Pipeline (DES)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      fetch:
+        type: boolean
+        description: "Baixar app do upstream (app-fetch)?"
+        default: false
+      app_ref:
+        type: string
+        description: "Tag do Quarkus Quickstart (ex: v3.9.2)"
+        default: "v3.9.2"
+
+jobs:
+  dev:
+    runs-on: [self-hosted, toolbox, kind]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Contexto
+        run: |
+          echo "FETCH=${{ inputs.fetch }}"
+          echo "APP_REF=${{ inputs.app_ref || vars.APP_REF }}"
+          echo "STRICT=${{ vars.STRICT || 'true' }}"
+
+      - name: Pipeline DEV
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          STRICT: ${{ vars.STRICT || 'true' }}
+        run: |
+          if [ "${{ inputs.fetch }}" = "true" ]; then
+            FETCH=1 APP_REF="${{ inputs.app_ref || vars.APP_REF }}"               bash toolbox/run-ci.sh 'make pipeline-dev'
+          else
+            FETCH=0               bash toolbox/run-ci.sh 'make pipeline-dev'
+          fi
+
+      - name: Gerar status (DES) + artifacts
+        if: always()
+        run: |
+          mkdir -p _artifacts
+          bash scripts/status.sh || true
+
+      - name: Upload artifacts (DES)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: des-status
+          path: |
+            _artifacts/status-*.html
+            _artifacts/status-*.txt
+            _artifacts/ports.*
+            sbom/**

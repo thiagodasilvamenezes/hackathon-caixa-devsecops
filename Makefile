@@ -3,7 +3,7 @@ FETCH ?= 0
 APP_REF ?= v3.9.2
 APP_SUBDIR ?= getting-started
 APP_UPSTREAM_URL ?= https://github.com/quarkusio/quarkus-quickstarts
-.PHONY: help toolbox-build toolbox-shell env-up env-down build-app image-build image-scan sbom sign deploy-des deploy-prd jquarkus-qs-backend-prd jquarkus-qs-backend-des pipeline-jquarkus-qs-backend-des pipeline-jquarkus-qs-backend-prd status
+.PHONY: help toolbox-build toolbox-shell env-up env-down build-app image-build image-scan sbom sign deploy-des deploy-prd jquarkus-qs-backend-prd jquarkus-qs-backend-des pipeline-jquarkus-qs-backend-des pipeline-jquarkus-qs-backend-prd status pipeline-clean clean clean-app clean-docker-images docker-prune deep-clean clean-m2
 
 APP_NAME ?= quarkus-getting-started
 # Porta de registry movida para range interno 6200-6500 para evitar conflitos locais.
@@ -32,6 +32,15 @@ help:
 	@echo "  pipeline-jquarkus-qs-backend-des  - One-shot pipeline DEV (infra+build+scan+sbom+sign+deploy DES)"
 	@echo "  pipeline-jquarkus-qs-backend-prd  - One-shot pipeline PRD (build+strict scan+sbom+sign+deploy PRD)"
 	@echo "  status                            - Resumo rápido de pods/deploys e resultado da pipeline"
+	@echo "  pipeline-clean                    - Limpa cluster kind + registry (mesmo que env-down)"
+	@echo "  clean                             - Limpeza local de artefatos (target, pipeline-*.ok/fail, containers temporários)"
+	@echo "  clean-app                         - Limpa build do aplicativo (mvn clean + remove target)"
+	@echo "  clean-docker-images               - Remove imagens locais criadas pelo projeto (padrão: $(APP_NAME) e $(REGISTRY))"
+	@echo "  docker-prune                      - Executa 'docker system prune -af --volumes' (perigoso - use com cuidado)"
+	@echo "  deep-clean                        - pipeline-clean + clean + docker-prune"
+	@echo "  clean-m2                          - Remove cache Maven local (~/.m2) (manual; execute somente se souber o que faz)"
+	@echo "  clean-sbom                        - Arquiva e limpa arquivos SBOM grandes em sbom/archive/"
+	@echo "  archive-sbom                      - Cria um tar.gz com os SBOMs atuais em sbom/archive/ (não remove originais)"
 
 toolbox-build:
 	docker build -t caixa-devsecops/toolbox:latest -f toolbox/Dockerfile toolbox
@@ -126,4 +135,51 @@ hooks-install:
 	git config core.hooksPath hooks
 	chmod +x hooks/* || true
 	@echo "✅ hooks instalados (core.hooksPath=hooks)"
+
+# ---------------- Cleanup helpers ----------------
+pipeline-clean:
+	@echo "🧹 Limpando ambiente (cluster + registry)"
+	bash toolbox/run-ci.sh 'make env-down || true'
+
+clean-app:
+	@echo "🧹 Limpando build do aplicativo (mvn clean + remover target)"
+	-mvn -q -f app/pom.xml clean || true
+	-rm -rf app/target || true
+
+clean-docker-images:
+	@echo "🧹 Removendo imagens locais criadas pelo projeto (apenas imagens nomeadas com $(APP_NAME) e $(REGISTRY))"
+	-docker rmi -f $(APP_NAME):dev-$(DEV_TAG) || true
+	-docker rmi -f $(IMAGE):dev-$(DEV_TAG) || true
+	-# remover também a tag PRD local, se existir
+	-docker rmi -f $(IMAGE):$(PRD_TAG) || true
+
+docker-prune:
+	@echo "⚠️  Executando docker system prune - af --volumes (perigoso)"
+	@echo "Pressione Ctrl+C para abortar em 5s..."
+	sleep 5
+	-docker system prune -af --volumes || true
+
+clean:
+	@echo "🧹 Limpando artefatos locais e arquivos de pipeline"
+	-rm -f pipeline-*.ok pipeline-*.fail || true
+	-$(MAKE) clean-app || true
+	-# remover containers temporários
+	-docker rm -f $(shell docker ps -aq --filter "name=devsec-runner" ) 2>/dev/null || true
+
+deep-clean: pipeline-clean clean docker-prune
+
+clean-m2:
+	@echo "⚠️ Removendo cache Maven (~/.m2) - use apenas se souber o que faz"
+	- rm -rf ~/.m2/repository || true
+
+clean-sbom:
+	@echo "🧾 Arquivando e limpando SBOMs grandes (threshold bytes opcional: CLEAN_SBOM_THRESHOLD)"
+	-chmod +x scripts/sbom-clean.sh || true
+	-CLEAN_SBOM_THRESHOLD=${CLEAN_SBOM_THRESHOLD:-0} scripts/sbom-clean.sh ${CLEAN_SBOM_THRESHOLD:-0}
+
+archive-sbom:
+	@echo "🧾 Criando tar.gz com SBOMs atuais em sbom/archive (não remove originais)"
+	-mkdir -p sbom/archive || true
+	-TIMESTAMP=$$(date +%Y%m%d_%H%M%S) && tar -czf sbom/archive/sbom_backup_$${TIMESTAMP}.tar.gz -C sbom $(ls sbom 2>/dev/null || true) || true
+
 

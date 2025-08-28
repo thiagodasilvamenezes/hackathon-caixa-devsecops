@@ -1,0 +1,46 @@
+name: Promote to PRD
+
+on:
+  workflow_dispatch:
+    inputs:
+      prd_tag:
+        type: string
+        description: "Tag para PRD (ex: v1.0.0)"
+        default: "v1.0.0"
+      strict:
+        type: choice
+        description: "Falhar se houver vulnerabilidades? (Trivy)"
+        options: [ "true", "false" ]
+        default: "true"
+
+jobs:
+  promote:
+    runs-on: [self-hosted, toolbox, kind]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Promote + Deploy PRD
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          STRICT: ${{ inputs.strict }}
+          PRD_TAG: ${{ inputs.prd_tag }}
+        run: |
+          bash toolbox/run-ci.sh 'make pipeline-prd'
+
+      - name: Gerar status (PRD) + artifacts
+        if: always()
+        run: |
+          mkdir -p _artifacts
+          bash scripts/status.sh || true
+
+      - name: Upload artifacts (PRD)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prd-status
+          path: |
+            _artifacts/status-*.html
+            _artifacts/status-*.txt
+            _artifacts/ports.*
+            sbom/**
